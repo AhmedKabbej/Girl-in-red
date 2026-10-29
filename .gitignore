@@ -1,0 +1,13 @@
+# dépendances et build (Vercel refait npm install + npm run build)
+node_modules
+dist
+*.tsbuildinfo
+
+# Vercel
+.vercel
+
+# macOS
+.DS_Store
+
+# env
+.env*

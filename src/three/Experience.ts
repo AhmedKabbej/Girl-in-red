@@ -9,13 +9,37 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import GUI from 'lil-gui';
 import audioUrl from '../girl in red.official audio.mp3';
+import octoberUrl from '../girl in red we fell in love in october.mp3';
 import ambientUrl from '../wild.mp3';
 import {
   skyVertex, skyFragment, grassVertex, grassFragment,
   groundVertex, groundFragment, charVertex, charFragment, finishShader,
+  leafVertex, leafFragment,
 } from './shaders';
 
 type CamMode = 'path-auto' | 'path-scroll' | 'free';
+type Track = 'dot' | 'october';
+
+// "we fell in love in october" switches the scene to autumn
+const TRACKS: Record<Track, { url: string; title: string; spotify: string; autumn: boolean }> = {
+  dot: {
+    url: audioUrl,
+    title: 'girl in red — « . »',
+    spotify: 'https://open.spotify.com/track/4r1AqGpB9YrXV2ivcrqfJY',
+    autumn: false,
+  },
+  october: {
+    url: octoberUrl,
+    title: 'girl in red — we fell in love in october',
+    spotify: 'https://open.spotify.com/search/girl%20in%20red%20we%20fell%20in%20love%20in%20october',
+    autumn: true,
+  },
+};
+
+// intro: black screen fades in on the lit character, holds, then the night comes back
+const INTRO_FADE_IN = 0.8;
+const INTRO_HOLD = 2.0;
+const INTRO_REVEAL = 1.8;
 
 interface BakeMeta {
   charScale: number;
@@ -56,6 +80,10 @@ export class Experience {
   private grassMat!: THREE.ShaderMaterial;
   private groundMat!: THREE.ShaderMaterial;
   private charMat!: THREE.ShaderMaterial;
+  private leafMat!: THREE.ShaderMaterial;
+  // shared by every material that reacts to the intro / the season
+  private introU = { value: 1 };
+  private autumnU = { value: 0 };
   private grass?: THREE.InstancedMesh;
   private grid: THREE.Group;
   private wireMats: THREE.Material[] = [];
@@ -84,6 +112,8 @@ export class Experience {
     milkyWay: 1.0,
     rim: 0.18,
     grassDensity: 1.0,
+    track: 'dot' as Track,
+    autumn: false,
   };
 
   private totalBlades = 0;
@@ -178,6 +208,10 @@ export class Experience {
     const m = q.get('mode');
     if (m === 'scroll') this.setMode('path-scroll');
     else if (m === 'free') this.setMode('free');
+    if (q.get('track') === 'october') {
+      this.setTrack('october');
+      this.autumnU.value = 1; // no transition on a deep link
+    }
   }
 
   // ------------------------------------------------------------------ loading
@@ -203,6 +237,8 @@ export class Experience {
       uLMHalf: { value: meta.groundHalf },
       uLMScale: { value: meta.groundScale },
       uLMEdge: { value: new THREE.Vector3(...meta.groundEdge) },
+      uIntro: this.introU,
+      uAutumn: this.autumnU,
     };
 
     this.charMat = new THREE.ShaderMaterial({
@@ -246,7 +282,8 @@ export class Experience {
 
     this.buildSky();
     this.buildGrass(lmUniforms, fogColor);
-    this.wireMats = [this.charMat, this.groundMat, this.grassMat, this.skyMat];
+    this.buildLeaves(lmUniforms, fogColor);
+    this.wireMats = [this.charMat, this.groundMat, this.grassMat, this.skyMat, this.leafMat];
     const gq = new URLSearchParams(window.location.search).get('grass');
     if (gq && this.grass) {
       this.params.grassDensity = THREE.MathUtils.clamp(parseFloat(gq) || 1, 0.05, 1);
@@ -272,6 +309,8 @@ export class Experience {
         uStars: { value: this.params.stars },
         uMilky: { value: this.params.milkyWay },
         uWire: { value: 0 },
+        uIntro: this.introU,
+        uAutumn: this.autumnU,
       },
     });
     // fullscreen triangle (see skyVertex)
@@ -381,6 +420,47 @@ export class Experience {
     this.scene.add(mesh);
   }
 
+  // falling leaves around the character, only visible in autumn (scaled to 0 otherwise)
+  private buildLeaves(lmUniforms: Record<string, THREE.IUniform>, fogColor: THREE.Color) {
+    const n = IS_MOBILE ? 90 : 220;
+    const geo = new THREE.InstancedBufferGeometry();
+    geo.copy(new THREE.PlaneGeometry(0.05, 0.035) as unknown as THREE.InstancedBufferGeometry);
+    const seeds = new Float32Array(n * 4);
+    const rng = mulberry32(11);
+    for (let i = 0; i < n; i++) {
+      const r = 0.5 + 4.0 * Math.sqrt(rng());
+      const a = rng() * Math.PI * 2;
+      seeds.set([Math.cos(a) * r, Math.sin(a) * r, rng(), rng()], i * 4);
+    }
+    geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(seeds, 4));
+    geo.instanceCount = n;
+
+    this.leafMat = new THREE.ShaderMaterial({
+      vertexShader: leafVertex,
+      fragmentShader: leafFragment,
+      side: THREE.DoubleSide,
+      uniforms: {
+        ...lmUniforms,
+        uTime: { value: 0 },
+        uWind: { value: this.params.wind },
+        uFogColor: { value: fogColor },
+        uWire: { value: 0 },
+      },
+    });
+    const mesh = new THREE.Mesh(geo, this.leafMat);
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+  }
+
+  setTrack(track: Track) {
+    const wasPlaying = !this.audio.paused;
+    this.params.track = track;
+    this.audio.src = TRACKS[track].url;
+    if (wasPlaying) this.audio.play().catch(() => {});
+    this.params.autumn = TRACKS[track].autumn;
+    this.gui.controllersRecursive().forEach((c) => c.updateDisplay());
+  }
+
   private makeBlenderGrid() {
     const g = new THREE.Group();
     const grid = new THREE.GridHelper(40, 40, 0x5a5a5a, 0x474747);
@@ -429,7 +509,7 @@ export class Experience {
     } else {
       this.scrollTarget = this.progress;
     }
-    this.renderer.domElement.style.cursor = free ? 'grab' : mode === 'path-scroll' ? 'ns-resize' : 'default';
+    this.renderer.domElement.style.cursor = free ? 'grab' : 'default';
     this.onModeChange?.(mode);
     this.gui.controllersRecursive().forEach((c) => c.updateDisplay());
   }
@@ -486,6 +566,7 @@ export class Experience {
     env.add(p, 'twinkle', 0, 1, 0.01).name('Scintillement');
     env.add(p, 'stars', 0, 3, 0.01).name('Étoiles');
     env.add(p, 'milkyWay', 0, 3, 0.01).name('Voie lactée');
+    env.add(p, 'autumn').name('Mode automne 🍂');
     env.add(p, 'grassDensity', 0.1, 1, 0.01).name('Densité herbe').onChange((v: number) => {
       if (this.grass) this.grass.count = Math.floor(this.totalBlades * v);
     });
@@ -494,9 +575,12 @@ export class Experience {
     const c = {
       play: () => this.togglePlay(),
       ambient: () => this.toggleAmbient(),
-      spotify: () => window.open('https://open.spotify.com/track/4r1AqGpB9YrXV2ivcrqfJY', '_blank', 'noopener'),
-      github: () => window.open('https://github.com/AhmedKabbej', '_blank', 'noopener'),
+      spotify: () => window.open(TRACKS[p.track].spotify, '_blank', 'noopener'),
     };
+    sound.add(p, 'track', {
+      '« . »': 'dot',
+      'we fell in love in october 🍂': 'october',
+    }).name('Morceau').onChange((t: Track) => this.setTrack(t));
     const playBtn = sound.add(c, 'play').name('▶ Musique');
     this.audio.addEventListener('play', () => playBtn.name('❚❚ Musique'));
     this.audio.addEventListener('pause', () => playBtn.name('▶ Musique'));
@@ -506,10 +590,15 @@ export class Experience {
     sound.add(c, 'spotify').name('Le morceau sur Spotify');
 
     const credits = gui.addFolder('Crédits');
-    credits.add(c, 'github').name('Réalisé par Ahmed Kebbaj ↗');
-    const info = { song: 'girl in red — « . »', tools: 'Blender · Three.js' };
-    credits.add(info, 'song').name('Morceau').disable();
-    credits.add(info, 'tools').name('Fait avec').disable();
+    const info = { song: 'girl in red' };
+    credits.add(info, 'song').name('Artiste').disable();
+    const signature = document.createElement('a');
+    signature.className = 'credits-signature';
+    signature.href = 'https://github.com/AhmedKabbej';
+    signature.target = '_blank';
+    signature.rel = 'noopener';
+    signature.textContent = 'réalisé par ahmed kabbej';
+    credits.$children.appendChild(signature);
 
     // par défaut seul le dossier Son est ouvert
     cam.close();
@@ -598,6 +687,16 @@ export class Experience {
         this.grassMat.uniforms.uTime.value = time;
         this.grassMat.uniforms.uWind.value = p.wind;
       }
+      if (this.leafMat) {
+        this.leafMat.uniforms.uTime.value = time;
+        this.leafMat.uniforms.uWind.value = p.wind;
+      }
+      // season change eases over a couple of seconds
+      this.autumnU.value += ((p.autumn ? 1 : 0) - this.autumnU.value) * Math.min(1, dt * 1.2);
+      // intro timeline (the clock starts on the first frame, right after loading)
+      const S = THREE.MathUtils.smoothstep;
+      this.introU.value = 1 - S(time, INTRO_HOLD, INTRO_HOLD + INTRO_REVEAL);
+      this.finish.uniforms.uFade.value = S(time, 0, INTRO_FADE_IN);
       this.finish.uniforms.uTime.value = time % 10;
       this.finish.uniforms.uGrain.value = p.grain;
       this.finish.uniforms.uVignette.value = p.vignette;

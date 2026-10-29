@@ -1,4 +1,4 @@
-// GLSL shaders for the sky, grass, ground and character.
+// GLSL shaders for the sky, grass, ground, autumn leaves and character.
 // All materials output LINEAR radiance; tone mapping happens once in OutputPass (AgX).
 
 const noiseChunk = /* glsl */ `
@@ -53,6 +53,8 @@ uniform float uTwinkle;
 uniform float uStars;
 uniform float uMilky;
 uniform float uWire;
+uniform float uIntro;     // 1 = intro darkness, 0 = normal sky
+uniform float uAutumn;    // 0..1 autumn season blend
 varying vec4 vRay;
 ${noiseChunk}
 
@@ -112,8 +114,12 @@ void main() {
   st *= 1.0 + band * 1.5;
   col += vec3(0.85, 0.9, 1.0) * st * uStars;
 
+  // autumn: faint warm haze low on the horizon
+  col += vec3(0.010, 0.004, 0.0) * uAutumn * (1.0 - smoothstep(0.0, 0.35, h));
+
   // fade stars into the horizon haze
   col *= smoothstep(-0.05, 0.04, d.y) * 0.85 + 0.15;
+  col *= 1.0 - uIntro;
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -131,6 +137,11 @@ vec3 groundIrradiance(vec2 xz) {
   vec3 lm = texture2D(uLM, clamp(uv, 0.001, 0.999)).rgb * uLMScale;
   return mix(uLMEdge, lm, inside);
 }
+// intro: everything goes dark except a small pool of light around the character
+uniform float uIntro;
+float introMask(vec2 xz) {
+  return mix(1.0, 1.0 - smoothstep(0.5, 2.0, length(xz)), uIntro);
+}
 `;
 
 // ---------------------------------------------------------------- GRASS (instanced)
@@ -141,6 +152,7 @@ varying float vH;
 varying float vRand;
 varying vec3 vIrr;
 varying float vFog;
+varying float vMask;
 ${lightmapChunk}
 void main() {
   vec4 root = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
@@ -152,6 +164,7 @@ void main() {
   wp.x += w * uWind * h * h * 0.05;
   wp.z += cos(uTime * 1.25 + ph * 1.7) * uWind * h * h * 0.025;
   vIrr = groundIrradiance(root.xz);
+  vMask = introMask(root.xz);
   vH = h;
   vRand = fract(sin(dot(root.xz, vec2(12.9898, 78.233))) * 43758.5453);
   vec4 mv = viewMatrix * wp;
@@ -163,14 +176,19 @@ void main() {
 export const grassFragment = /* glsl */ `
 uniform vec3 uFogColor;
 uniform float uWire;
+uniform float uAutumn;
 varying float vH;
 varying float vRand;
 varying vec3 vIrr;
 varying float vFog;
+varying float vMask;
 void main() {
   if (uWire > 0.5) { gl_FragColor = vec4(0.05, 0.05, 0.05, 0.35); return; }
-  vec3 rootC = vec3(0.006, 0.02, 0.004);
-  vec3 tipC = vec3(0.30, 0.55, 0.08);
+  // autumn: golden to rust tips, a few blades stay olive
+  vec3 fall = mix(vec3(0.55, 0.30, 0.05), vec3(0.45, 0.10, 0.02), fract(vRand * 3.7));
+  fall = mix(fall, vec3(0.28, 0.30, 0.07), step(0.8, fract(vRand * 11.3)));
+  vec3 rootC = mix(vec3(0.006, 0.02, 0.004), vec3(0.02, 0.008, 0.003), uAutumn);
+  vec3 tipC = mix(vec3(0.30, 0.55, 0.08), fall, uAutumn);
   vec3 base = mix(rootC, tipC, smoothstep(0.0, 1.0, vH));
   base *= mix(0.6, 1.2, vRand);
   base.r *= mix(0.85, 1.25, fract(vRand * 7.13));      // slight hue variation
@@ -178,7 +196,7 @@ void main() {
   vec3 trans = base * vIrr * 0.45 * vH * vH;          // light through the blade tips
   vec3 col = (diffuse + trans) * 0.85;
   col = mix(col, uFogColor, vFog);
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col * vMask, 1.0);
 }
 `;
 
@@ -198,6 +216,7 @@ void main() {
 export const groundFragment = /* glsl */ `
 uniform vec3 uFogColor;
 uniform float uWire;
+uniform float uAutumn;
 varying vec3 vWorld;
 varying float vFog;
 ${noiseChunk}
@@ -205,10 +224,60 @@ ${lightmapChunk}
 void main() {
   if (uWire > 0.5) { gl_FragColor = vec4(0.04, 0.04, 0.04, 1.0); return; }
   float n = fbm(vWorld * 3.0);
-  vec3 albedo = mix(vec3(0.004, 0.008, 0.002), vec3(0.03, 0.07, 0.012), n);
+  vec3 lo = mix(vec3(0.004, 0.008, 0.002), vec3(0.010, 0.005, 0.002), uAutumn);
+  vec3 hi = mix(vec3(0.03, 0.07, 0.012), vec3(0.08, 0.04, 0.012), uAutumn);
+  vec3 albedo = mix(lo, hi, n);
   vec3 col = albedo * groundIrradiance(vWorld.xz);
   col = mix(col, uFogColor, vFog);
-  gl_FragColor = vec4(col, 1.0);
+  gl_FragColor = vec4(col * introMask(vWorld.xz), 1.0);
+}
+`;
+
+// ---------------------------------------------------------------- LEAVES (autumn, instanced)
+export const leafVertex = /* glsl */ `
+attribute vec4 aSeed;       // x, z, phase, rand
+uniform float uTime;
+uniform float uWind;
+uniform float uAutumn;
+varying vec3 vCol;
+varying float vFog;
+varying vec2 vUv;
+${lightmapChunk}
+mat3 rot(float a, float b) {
+  float ca = cos(a), sa = sin(a), cb = cos(b), sb = sin(b);
+  return mat3(ca, 0.0, -sa, 0.0, 1.0, 0.0, sa, 0.0, ca) * mat3(1.0, 0.0, 0.0, 0.0, cb, sb, 0.0, -sb, cb);
+}
+void main() {
+  // each leaf loops from 2.6 m down to the grass, drifting and fluttering
+  float t = fract(uTime * (0.05 + 0.04 * aSeed.w) + aSeed.z);
+  vec3 c = vec3(aSeed.x, 2.6 * (1.0 - t), aSeed.y);
+  c.x += sin(uTime * 0.9 + aSeed.z * 20.0) * 0.25 + uWind * 0.3 * t;
+  c.z += cos(uTime * 0.7 + aSeed.w * 20.0) * 0.25;
+  float spin = uTime * (1.5 + aSeed.w * 2.0) + aSeed.z * 30.0;
+  // grow in at the top, shrink when it lands, and only exist in autumn
+  float s = uAutumn * smoothstep(0.0, 0.08, t) * (1.0 - smoothstep(0.96, 1.0, t));
+  vec3 wp = c + rot(spin, spin * 0.7 + aSeed.w * 6.0) * position * s;
+  vec3 base = mix(vec3(0.60, 0.22, 0.03), vec3(0.65, 0.42, 0.06), aSeed.w);
+  base = mix(base, vec3(0.45, 0.06, 0.02), step(0.75, fract(aSeed.w * 7.3)));
+  vCol = base * groundIrradiance(c.xz) * 0.6 * introMask(c.xz);
+  vUv = uv;
+  vec4 mv = viewMatrix * vec4(wp, 1.0);
+  vFog = 1.0 - exp(-0.0025 * dot(mv.xyz, mv.xyz));
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+export const leafFragment = /* glsl */ `
+uniform vec3 uFogColor;
+uniform float uWire;
+varying vec3 vCol;
+varying float vFog;
+varying vec2 vUv;
+void main() {
+  if (uWire > 0.5) discard;
+  vec2 q = vUv * 2.0 - 1.0;
+  if (q.x * q.x + q.y * q.y * 1.6 > 1.0) discard; // oval leaf
+  gl_FragColor = vec4(mix(vCol, uFogColor, vFog), 1.0);
 }
 `;
 
@@ -254,6 +323,7 @@ export const finishShader = {
     uTime: { value: 0 },
     uGrain: { value: 0.05 },
     uVignette: { value: 0.35 },
+    uFade: { value: 1 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -264,6 +334,7 @@ export const finishShader = {
     uniform float uTime;
     uniform float uGrain;
     uniform float uVignette;
+    uniform float uFade;
     varying vec2 vUv;
     float rnd(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + uTime) * 43758.5453); }
     void main() {
@@ -272,6 +343,7 @@ export const finishShader = {
       float v = 1.0 - uVignette * smoothstep(0.25, 0.85, length(q * vec2(1.1, 1.0)) * 1.4);
       c.rgb *= v;
       c.rgb += (rnd(vUv * 731.0) - 0.5) * uGrain;
+      c.rgb *= uFade;
       gl_FragColor = c;
     }
   `,
