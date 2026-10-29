@@ -1,0 +1,174 @@
+.stage {
+  position: fixed;
+  inset: 0;
+  background: #02040a;
+  overflow: hidden;
+}
+.canvas,
+.canvas canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+.loader {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: #02040a;
+  color: #e9e6f2;
+  z-index: 5;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+}
+.loader-title {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  text-transform: lowercase;
+  color: #e9e6f2;
+}
+.loader-bar {
+  width: 120px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.loader-bar span {
+  display: block;
+  height: 100%;
+  background: #e0324b;
+  transition: width 0.3s ease;
+}
+.loader-label {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  opacity: 0.4;
+  font-variant-numeric: tabular-nums;
+  max-width: 80vw;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------- overlay */
+.wordmark,
+.hint {
+  position: absolute;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  color: #e9e6f2;
+  transition: opacity 0.6s ease;
+}
+.wordmark {
+  top: 22px;
+  left: 24px;
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  opacity: 0.7;
+  text-decoration: none;
+}
+.wordmark:hover {
+  opacity: 1;
+  color: #e0324b;
+}
+.wordmark-arrow {
+  letter-spacing: 0;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.wordmark:hover .wordmark-arrow {
+  opacity: 1;
+}
+.hint {
+  right: 24px;
+  bottom: 24px;
+  max-width: min(420px, calc(100vw - 48px));
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-align: right;
+  pointer-events: none;
+  animation: hint-fade 6s ease forwards;
+}
+/* visible quand le mode change, puis s'efface discrètement */
+@keyframes hint-fade {
+  0%, 60% { opacity: 0.65; }
+  100% { opacity: 0.25; }
+}
+/* ---------------------------------------------------------------- phone play button */
+.play {
+  position: absolute;
+  left: 50%;
+  bottom: calc(34px + env(safe-area-inset-bottom));
+  width: 64px;
+  height: 64px;
+  margin-left: -32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: #f4f1fa;
+  color: #02040a;
+  box-shadow: 0 0 28px rgba(224, 50, 75, 0.35);
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+}
+.play svg {
+  width: 26px;
+  height: 26px;
+  fill: currentColor;
+}
+.desktop-note {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-align: center;
+  color: #e9e6f2;
+  opacity: 0.35;
+  pointer-events: none;
+}
+/* halo qui pulse tant que le son n'est pas lancé */
+.play:not(.is-playing)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid rgba(244, 241, 250, 0.7);
+  animation: play-pulse 2.2s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes play-pulse {
+  from { transform: scale(1); opacity: 0.8; }
+  to { transform: scale(1.7); opacity: 0; }
+}
+.play.is-playing {
+  background: rgba(244, 241, 250, 0.14);
+  color: #f4f1fa;
+  box-shadow: none;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+@media (max-width: 700px) {
+  .wordmark { top: calc(16px + env(safe-area-inset-top)); left: 16px; }
+  .hint { right: 16px; bottom: 16px; max-width: calc(100vw - 32px); }
+}
+
+/* Mode immersif : activé au lancement de la musique, Échap pour sortir */
+body.immersive .wordmark,
+body.immersive .hint {
+  opacity: 0;
+  pointer-events: none;
+}
+body.immersive .hint {
+  animation: none; /* sinon l'animation garde le hint visible */
+}
+body.immersive {
+  cursor: none;
+}

@@ -1,0 +1,4 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; background: #02040a; overflow: hidden; }
+.lil-gui { --font-family: 'Helvetica Neue', Arial, sans-serif; --title-background-color: #3a0d16; --number-color: #e0324b; --string-color: #f2c4cc; --focus-color: #5a1522; }
