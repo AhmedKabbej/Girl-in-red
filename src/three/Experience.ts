@@ -490,19 +490,26 @@ export class Experience {
       if (this.grass) this.grass.count = Math.floor(this.totalBlades * v);
     });
 
-    const credits = gui.addFolder('Son');
+    const sound = gui.addFolder('Son');
     const c = {
       play: () => this.togglePlay(),
       ambient: () => this.toggleAmbient(),
       spotify: () => window.open('https://open.spotify.com/track/4r1AqGpB9YrXV2ivcrqfJY', '_blank', 'noopener'),
+      github: () => window.open('https://github.com/AhmedKabbej', '_blank', 'noopener'),
     };
-    const playBtn = credits.add(c, 'play').name('▶ Musique');
+    const playBtn = sound.add(c, 'play').name('▶ Musique');
     this.audio.addEventListener('play', () => playBtn.name('❚❚ Musique'));
     this.audio.addEventListener('pause', () => playBtn.name('▶ Musique'));
-    const ambientBtn = credits.add(c, 'ambient').name('▶ Ambiance');
+    const ambientBtn = sound.add(c, 'ambient').name('▶ Ambiance');
     this.ambient.addEventListener('play', () => ambientBtn.name('❚❚ Ambiance'));
     this.ambient.addEventListener('pause', () => ambientBtn.name('▶ Ambiance'));
-    credits.add(c, 'spotify').name('Le morceau sur Spotify');
+    sound.add(c, 'spotify').name('Le morceau sur Spotify');
+
+    const credits = gui.addFolder('Crédits');
+    credits.add(c, 'github').name('Réalisé par Ahmed Kebbaj ↗');
+    const info = { song: 'girl in red — « . »', tools: 'Blender · Three.js' };
+    credits.add(info, 'song').name('Morceau').disable();
+    credits.add(info, 'tools').name('Fait avec').disable();
 
     // par défaut seul le dossier Son est ouvert
     cam.close();

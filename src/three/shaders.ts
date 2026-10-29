@@ -75,7 +75,9 @@ float starLayer(vec3 d, float scale, float size, float keep, float gain, float t
   vec3 rnd = hash33(bestCell + vec3(17.0, 31.0, 53.0));
   float dist = sqrt(best);
   float px = length(fwidth(p)) * 0.9;           // pixel footprint in cell units
-  float s = max(size, px);
+  // capped at 0.5: past that a star reaches cells outside the 2x2x2 lookup and gets cut
+  // along the cell planes (straight lines in the sky when zoomed out)
+  float s = min(max(size, px), 0.5);
   float energy = (size * size) / (s * s);        // keep brightness when star < 1px
   float core = pow(clamp(1.0 - dist / s, 0.0, 1.0), 3.0) * energy;
   float on = step(keep, rnd.x);
@@ -94,7 +96,9 @@ void main() {
 
   // milky way band along a tilted great circle
   vec3 axis = normalize(vec3(0.30, 0.866, -0.40));
-  float band = smoothstep(0.33, 0.0, abs(dot(d, axis)));
+  // smoothstep with edge0 > edge1 is undefined in GLSL: some GPUs drew a hard edge there,
+  // a thin line that followed the camera across the stars. Use the ordered form.
+  float band = 1.0 - smoothstep(0.0, 0.33, abs(dot(d, axis)));
   if (band > 0.0 && uMilky > 0.0) { // skip the two fbm outside the band
     float clouds = smoothstep(0.42, 0.78, fbm(d * 4.0));
     float dust = smoothstep(0.55, 0.75, fbm(d * 9.0 + 3.1));
